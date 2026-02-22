@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pro Grace | JEE Progress Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="bg-layer"></div>
+  <div class="page-shell">
+    <header class="top-nav">
+      <div class="brand-block">
+        <img class="brand-mark" src="assets/ProGrace-ui.gif" alt="Pro Grace logo">
+        <div>
+          <p class="brand-label">Pro Grace</p>
+          <p class="brand-sub">JEE Progress Tracker</p>
+        </div>
+      </div>
+
+      <div class="users-switch" role="tablist" aria-label="Switch user">
+        <button class="user-chip is-active" role="tab" aria-selected="true" data-user="himanshu">Himanshu</button>
+        <button class="user-chip" role="tab" aria-selected="false" data-user="priyanshu">Priyanshu</button>
+      </div>
+
+      <section class="overall-progress-card" aria-label="Overall comparison">
+        <div class="overall-head">
+          <p>Total Progress</p>
+          <p id="overall-active">Himanshu Leading</p>
+        </div>
+        <div class="race-track">
+          <div class="track-fill"></div>
+          <div class="runner runner-himanshu" id="runner-himanshu" data-short="H" aria-label="Himanshu progress marker"></div>
+          <div class="runner runner-priyanshu" id="runner-priyanshu" data-short="P" aria-label="Priyanshu progress marker"></div>
+        </div>
+        <div class="overall-milestone-strip" id="overall-milestone-strip" aria-label="Overall milestones"></div>
+        <p class="overall-milestone-status" id="overall-milestone-status">Milestones loading...</p>
+        <div class="overall-foot">
+          <p id="score-himanshu">0%</p>
+          <p id="score-priyanshu">0%</p>
+        </div>
+      </section>
+    </header>
+
+    <main class="app-main">
+      <section class="app-view is-active" id="dashboard-view">
+        <div class="subjects-grid">
+          <article class="subject-card" data-subject="mathematics">
+            <header class="subject-top">
+              <p class="subject-name">Mathematics</p>
+              <button class="suggestion-strip suggestion-btn" id="mathematics-last" data-subject="mathematics" type="button">
+                Last Opened: --
+              </button>
+              <p class="subject-milestone-status" id="mathematics-milestone">Milestone: --</p>
+            </header>
+            <div class="subject-body">
+              <div class="vertical-progress-wrap">
+                <div class="vertical-track-wrap">
+                  <div class="vertical-milestones" id="mathematics-milestones"></div>
+                  <div class="vertical-track">
+                    <div class="vertical-fill" id="mathematics-fill"></div>
+                  </div>
+                </div>
+                <p class="vertical-value" id="mathematics-value">0%</p>
+              </div>
+              <div class="subject-insight">
+                <p class="subject-hero-value" id="mathematics-hero-value">0%</p>
+                <div class="subject-metrics">
+                  <p><span>Target</span><strong id="mathematics-target">0</strong></p>
+                  <p><span>Solved</span><strong id="mathematics-solved">0</strong></p>
+                  <p><span>Remaining</span><strong id="mathematics-remaining">0</strong></p>
+                </div>
+              </div>
+            </div>
+            <button class="subject-open-btn" data-subject="mathematics">Open Maths Chapters</button>
+          </article>
+
+          <article class="subject-card" data-subject="physics">
+            <header class="subject-top">
+              <p class="subject-name">Physics</p>
+              <button class="suggestion-strip suggestion-btn" id="physics-last" data-subject="physics" type="button">
+                Last Opened: --
+              </button>
+              <p class="subject-milestone-status" id="physics-milestone">Milestone: --</p>
+            </header>
+            <div class="subject-body">
+              <div class="vertical-progress-wrap">
+                <div class="vertical-track-wrap">
+                  <div class="vertical-milestones" id="physics-milestones"></div>
+                  <div class="vertical-track">
+                    <div class="vertical-fill" id="physics-fill"></div>
+                  </div>
+                </div>
+                <p class="vertical-value" id="physics-value">0%</p>
+              </div>
+              <div class="subject-insight">
+                <p class="subject-hero-value" id="physics-hero-value">0%</p>
+                <div class="subject-metrics">
+                  <p><span>Target</span><strong id="physics-target">0</strong></p>
+                  <p><span>Solved</span><strong id="physics-solved">0</strong></p>
+                  <p><span>Remaining</span><strong id="physics-remaining">0</strong></p>
+                </div>
+              </div>
+            </div>
+            <button class="subject-open-btn" data-subject="physics">Open Physics Chapters</button>
+          </article>
+
+          <article class="subject-card" data-subject="chemistry">
+            <header class="subject-top">
+              <p class="subject-name">Chemistry</p>
+              <button class="suggestion-strip suggestion-btn" id="chemistry-last" data-subject="chemistry" type="button">
+                Last Opened: --
+              </button>
+              <p class="subject-milestone-status" id="chemistry-milestone">Milestone: --</p>
+            </header>
+            <div class="subject-body">
+              <div class="vertical-progress-wrap">
+                <div class="vertical-track-wrap">
+                  <div class="vertical-milestones" id="chemistry-milestones"></div>
+                  <div class="vertical-track">
+                    <div class="vertical-fill" id="chemistry-fill"></div>
+                  </div>
+                </div>
+                <p class="vertical-value" id="chemistry-value">0%</p>
+              </div>
+              <div class="subject-insight">
+                <p class="subject-hero-value" id="chemistry-hero-value">0%</p>
+                <div class="subject-metrics">
+                  <p><span>Target</span><strong id="chemistry-target">0</strong></p>
+                  <p><span>Solved</span><strong id="chemistry-solved">0</strong></p>
+                  <p><span>Remaining</span><strong id="chemistry-remaining">0</strong></p>
+                </div>
+              </div>
+            </div>
+            <button class="subject-open-btn" data-subject="chemistry">Open Chemistry Chapters</button>
+          </article>
+        </div>
+      </section>
+
+      <section class="app-view" id="subject-view" aria-live="polite">
+        <div class="subject-page-head">
+          <button class="back-btn" id="back-to-dashboard" type="button">Back to Dashboard</button>
+          <div class="subject-page-title-wrap">
+            <h1 id="subject-page-title">Mathematics</h1>
+            <p id="subject-page-meta">Himanshu | 0% completed</p>
+          </div>
+          <button class="add-btn" id="open-add-chapter" type="button">Add Chapter</button>
+        </div>
+
+        <div class="subject-tools">
+          <label class="field compact-field">
+            <span>Search Chapter</span>
+            <input id="chapter-search-input" type="text" placeholder="Type chapter name...">
+          </label>
+          <label class="field compact-field">
+            <span>Sort By</span>
+            <select id="chapter-sort-select">
+              <option value="least-progress">Least Progress</option>
+              <option value="most-progress">Most Progress</option>
+              <option value="alphabetical">Alphabetical</option>
+              <option value="target-high">Target High to Low</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="subject-page-stats">
+          <p>Total Chapters: <strong id="subject-chapter-count">0</strong></p>
+          <p>Subject Target: <strong id="subject-target-total">0</strong></p>
+          <p>Solved by Active User: <strong id="subject-solved-total">0</strong></p>
+          <p>Remaining: <strong id="subject-remaining-total">0</strong></p>
+        </div>
+
+        <div class="chapters-grid" id="chapters-grid"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-shell" id="add-chapter-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Add New Chapter</h2>
+        <button type="button" class="close-btn" id="close-add-modal">Close</button>
+      </div>
+      <p class="modal-note">
+        This chapter will be added for both users with the same target.
+      </p>
+      <form id="add-chapter-form">
+        <label class="field">
+          <span>Chapter Name</span>
+          <input id="chapter-name-input" name="chapterName" type="text" placeholder="e.g. Permutations and Combinations" required maxlength="120">
+        </label>
+
+        <label class="field">
+          <span>Target Questions</span>
+          <select id="chapter-target-input" name="chapterTarget" required>
+            <option value="100">100 Questions</option>
+            <option value="250">250 Questions</option>
+            <option value="400">400 Questions</option>
+            <option value="500">500 Questions</option>
+          </select>
+        </label>
+
+        <div class="modal-actions">
+          <button type="button" class="ghost-btn" id="cancel-add-chapter">Cancel</button>
+          <button type="submit" class="primary-btn">Add for Both Users</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="drawer-shell" id="chapter-drawer" aria-hidden="true">
+    <button class="drawer-backdrop" id="drawer-backdrop" type="button" aria-label="Close chapter details"></button>
+    <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+      <div class="drawer-head">
+        <div>
+          <p class="drawer-subtitle" id="drawer-subject-label">Mathematics</p>
+          <h2 id="drawer-title">Chapter Name</h2>
+        </div>
+        <button type="button" class="close-btn" id="close-drawer">Close</button>
+      </div>
+
+      <p class="drawer-note" id="drawer-note">
+        Enter solved questions for this chapter.
+      </p>
+
+      <div class="drawer-stats">
+        <p>Target: <strong id="drawer-target">0</strong></p>
+        <p>Solved: <strong id="drawer-solved">0</strong></p>
+        <p>Remaining: <strong id="drawer-remaining">0</strong></p>
+      </div>
+
+      <form class="progress-form" id="chapter-progress-form">
+        <label class="field">
+          <span>Questions Solved Now (Min 15 to Add)</span>
+          <input id="chapter-solved-input" type="number" min="1" step="1" required>
+        </label>
+        <div class="quick-add-row" id="quick-add-row">
+          <button type="button" class="quick-add-btn" data-add="15">+15</button>
+          <button type="button" class="quick-add-btn" data-add="25">+25</button>
+          <button type="button" class="quick-add-btn" data-add="50">+50</button>
+          <button type="button" class="quick-add-btn" data-add="75">+75</button>
+          <button type="button" class="quick-add-btn" data-add="100">+100</button>
+        </div>
+        <div class="progress-actions">
+          <button type="button" class="ghost-btn" id="chapter-progress-undo">Undo Fire</button>
+          <button type="submit" class="primary-btn" id="chapter-progress-submit">Add Progress</button>
+        </div>
+      </form>
+
+      <div class="progress-grid-meta">
+        <p id="grid-dimensions">Grid: 0 x 0</p>
+        <p id="grid-completed-label">0 / 0 ignited</p>
+      </div>
+      <div class="question-grid" id="question-grid"></div>
+    </aside>
+  </div>
+
+  <aside class="undo-toast" id="undo-toast" hidden aria-live="polite">
+    <p id="undo-message">Chapter removed.</p>
+    <div class="undo-actions">
+      <button type="button" class="ghost-btn" id="undo-action">Undo (5s)</button>
+      <button type="button" class="close-btn" id="undo-dismiss">Dismiss</button>
+    </div>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>
