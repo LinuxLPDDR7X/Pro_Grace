@@ -14,7 +14,11 @@
   <div class="page-shell">
     <header class="top-nav">
       <div class="brand-block">
-        <img class="brand-mark" src="assets/ProGrace-ui.gif" alt="Pro Grace logo">
+        <img
+          class="brand-mark"
+          src="assets/ProGrace-ui.gif"
+          onerror="this.onerror=null;this.src='ProGrace.gif';"
+          alt="Pro Grace logo">
         <div>
           <p class="brand-label">Pro Grace</p>
           <p class="brand-sub">JEE Progress Tracker</p>
@@ -266,6 +270,8 @@
     </div>
   </aside>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

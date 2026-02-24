@@ -2,6 +2,25 @@ const STORAGE_KEY = "pro-grace-v1";
 const API_DATA_ENDPOINT = "/api/data";
 const MIN_IGNITE_ADD = 15;
 const ALLOWED_TARGETS = [100, 250, 400, 500];
+const DEFAULT_RUNTIME_CONFIG = Object.freeze({
+  supabaseUrl: "",
+  supabaseAnonKey: "",
+  supabaseTable: "prograce_state",
+  supabaseRowId: "primary",
+});
+const runtimeConfig = {
+  ...DEFAULT_RUNTIME_CONFIG,
+  ...(typeof window.PRO_GRACE_CONFIG === "object" && window.PRO_GRACE_CONFIG ? window.PRO_GRACE_CONFIG : {}),
+};
+const SUPABASE_URL = typeof runtimeConfig.supabaseUrl === "string" ? runtimeConfig.supabaseUrl.trim() : "";
+const SUPABASE_ANON_KEY = typeof runtimeConfig.supabaseAnonKey === "string" ? runtimeConfig.supabaseAnonKey.trim() : "";
+const SUPABASE_TABLE = typeof runtimeConfig.supabaseTable === "string" ? runtimeConfig.supabaseTable.trim() || "prograce_state" : "prograce_state";
+const SUPABASE_ROW_ID = typeof runtimeConfig.supabaseRowId === "string" ? runtimeConfig.supabaseRowId.trim() || "primary" : "primary";
+const PERSISTENCE_TARGET = {
+  none: "none",
+  server: "server",
+  supabase: "supabase",
+};
 const SUBJECTS = {
   mathematics: "Mathematics",
   physics: "Physics",
@@ -141,6 +160,29 @@ function normalizeData(rawData) {
   return normalized;
 }
 
+function isSupabaseConfigured() {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
+  if (SUPABASE_URL.includes("YOUR-PROJECT") || SUPABASE_ANON_KEY.includes("YOUR_SUPABASE")) return false;
+  return true;
+}
+
+function getSupabaseClient() {
+  if (!isSupabaseConfigured()) return null;
+  if (!window.supabase || typeof window.supabase.createClient !== "function") return null;
+
+  if (!supabaseClient) {
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+  }
+
+  return supabaseClient;
+}
+
 async function loadDataFromServer() {
   const response = await fetch(API_DATA_ENDPOINT, { cache: "no-store" });
   if (!response.ok) {
@@ -149,6 +191,35 @@ async function loadDataFromServer() {
 
   const parsed = await response.json();
   return normalizeData(parsed);
+}
+
+async function loadDataFromSupabase() {
+  const client = getSupabaseClient();
+  if (!client) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  const { data, error } = await client
+    .from(SUPABASE_TABLE)
+    .select("payload")
+    .eq("id", SUPABASE_ROW_ID)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load Supabase data: ${error.message}`);
+  }
+
+  if (data && typeof data.payload === "object" && data.payload) {
+    return normalizeData(data.payload);
+  }
+
+  const seeded = loadDataFromLocalBackup();
+  try {
+    await persistToSupabase(seeded);
+  } catch (persistError) {
+    // Keep local seeded state if first upsert fails.
+  }
+  return normalizeData(seeded);
 }
 
 function loadDataFromLocalBackup() {
@@ -217,9 +288,10 @@ const undoState = {
   expiresAt: 0,
 };
 
-let useFilePersistence = false;
+let persistenceTarget = PERSISTENCE_TARGET.none;
 let saveRequestInFlight = null;
 let saveQueuedData = null;
+let supabaseClient = null;
 
 function saveLocalBackup(data) {
   try {
@@ -229,9 +301,26 @@ function saveLocalBackup(data) {
   }
 }
 
-async function persistToServer(data) {
-  if (!useFilePersistence) return false;
+async function persistToSupabase(data) {
+  const client = getSupabaseClient();
+  if (!client) return false;
 
+  const { error } = await client.from(SUPABASE_TABLE).upsert(
+    {
+      id: SUPABASE_ROW_ID,
+      payload: normalizeData(data),
+    },
+    { onConflict: "id" },
+  );
+
+  if (error) {
+    throw new Error(`Failed to save Supabase data: ${error.message}`);
+  }
+
+  return true;
+}
+
+async function persistToServer(data) {
   const response = await fetch(API_DATA_ENDPOINT, {
     method: "POST",
     headers: {
@@ -247,8 +336,20 @@ async function persistToServer(data) {
   return true;
 }
 
-function queueServerSave() {
-  if (!useFilePersistence) return;
+async function persistToRemote(data) {
+  if (persistenceTarget === PERSISTENCE_TARGET.supabase) {
+    return persistToSupabase(data);
+  }
+
+  if (persistenceTarget === PERSISTENCE_TARGET.server) {
+    return persistToServer(data);
+  }
+
+  return false;
+}
+
+function queueRemoteSave() {
+  if (persistenceTarget === PERSISTENCE_TARGET.none) return;
   saveQueuedData = normalizeData(appData);
   if (saveRequestInFlight) return;
 
@@ -257,9 +358,10 @@ function queueServerSave() {
       const payload = saveQueuedData;
       saveQueuedData = null;
       try {
-        await persistToServer(payload);
+        await persistToRemote(payload);
       } catch (error) {
-        useFilePersistence = false;
+        persistenceTarget = PERSISTENCE_TARGET.none;
+        console.warn("[Pro Grace] Remote save failed. Falling back to local backup only.", error);
         break;
       }
     }
@@ -271,7 +373,7 @@ function queueServerSave() {
 function saveData() {
   appData = normalizeData(appData);
   saveLocalBackup(appData);
-  queueServerSave();
+  queueRemoteSave();
 }
 
 function clampPercentage(value) {
@@ -1014,16 +1116,27 @@ function attachEvents() {
 }
 
 async function init() {
+  const localBackup = loadDataFromLocalBackup();
+
   try {
-    appData = await loadDataFromServer();
-    useFilePersistence = true;
-  } catch (error) {
-    appData = loadDataFromLocalBackup();
-    useFilePersistence = false;
+    appData = await loadDataFromSupabase();
+    persistenceTarget = PERSISTENCE_TARGET.supabase;
+  } catch (supabaseError) {
+    try {
+      appData = await loadDataFromServer();
+      persistenceTarget = PERSISTENCE_TARGET.server;
+    } catch (serverError) {
+      appData = localBackup;
+      persistenceTarget = PERSISTENCE_TARGET.none;
+    }
   }
 
   appData = normalizeData(appData);
   saveData();
+  console.info(`[Pro Grace] Persistence mode: ${persistenceTarget}`);
+  if (persistenceTarget === PERSISTENCE_TARGET.none) {
+    console.warn("[Pro Grace] Remote persistence is not active. Data is saved in this browser only.");
+  }
   renderMilestoneMarkers();
   syncUserSwitchUI();
   renderOverallComparison();
