@@ -974,6 +974,33 @@ body {
   gap: 6px;
 }
 
+.add-both-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  border: 1px solid rgba(148, 186, 238, 0.24);
+  border-radius: 9px;
+  background: rgba(8, 14, 24, 0.66);
+  padding: 6px 10px;
+  color: #d7e8ff;
+  font-size: 0.82rem;
+  user-select: none;
+  cursor: pointer;
+}
+
+.add-both-toggle input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #22c55e;
+  cursor: pointer;
+}
+
+.add-both-toggle span {
+  line-height: 1;
+}
+
 .progress-actions {
   display: flex;
   justify-content: flex-end;

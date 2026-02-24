@@ -272,6 +272,7 @@ const elements = {
   chapterProgressSubmit: document.getElementById("chapter-progress-submit"),
   chapterProgressUndo: document.getElementById("chapter-progress-undo"),
   quickAddRow: document.getElementById("quick-add-row"),
+  addToBothCheckbox: document.getElementById("add-to-both-checkbox"),
   questionGrid: document.getElementById("question-grid"),
   gridDimensions: document.getElementById("grid-dimensions"),
   gridCompletedLabel: document.getElementById("grid-completed-label"),
@@ -495,6 +496,46 @@ function setSolvedCount(userKey, subjectKey, chapterId, solved) {
   }
 
   appData.users[userKey].solvedBySubject[subjectKey][chapterId] = solved;
+}
+
+function getProgressTargetUsers() {
+  if (elements.addToBothCheckbox?.checked) {
+    return Object.keys(appData.users);
+  }
+
+  return [state.activeUser];
+}
+
+function updateDrawerActionState(chapter, activeRemaining) {
+  const progressUsers = getProgressTargetUsers();
+  const canAdd = progressUsers.some((userKey) => {
+    const solved = getSolvedCount(userKey, state.currentSubject, chapter.id);
+    return Math.max(chapter.target - solved, 0) > 0;
+  });
+  const canUndo = progressUsers.some((userKey) => {
+    return getSolvedCount(userKey, state.currentSubject, chapter.id) > 0;
+  });
+
+  elements.chapterProgressSubmit.disabled = !canAdd;
+  elements.chapterProgressUndo.disabled = !canUndo;
+  elements.quickAddRow.querySelectorAll(".quick-add-btn").forEach((button) => {
+    button.disabled = !canAdd;
+  });
+
+  if (!canAdd) {
+    const scopeLabel = progressUsers.length > 1 ? "both users" : appData.users[state.activeUser].name;
+    elements.drawerNote.textContent = `Chapter complete for ${scopeLabel}. Use Undo Fire if you want to correct an extra add.`;
+    return;
+  }
+
+  if (progressUsers.length === 1 && activeRemaining < MIN_IGNITE_ADD) {
+    elements.drawerNote.textContent = `Only final top-up of ${activeRemaining} is allowed to finish this chapter.`;
+    return;
+  }
+
+  if (progressUsers.length > 1) {
+    elements.drawerNote.textContent = `Enter solved count for this session. Minimum ${MIN_IGNITE_ADD} to Add Progress. Add mode: both users.`;
+  }
 }
 
 function computeSubjectTotals(userKey, subjectKey) {
@@ -762,17 +803,7 @@ function renderChapterDrawer() {
   elements.chapterSolvedInput.max = String(chapter.target);
   elements.chapterSolvedInput.min = "1";
   elements.chapterSolvedInput.disabled = chapter.target === 0;
-  elements.chapterProgressSubmit.disabled = remaining === 0;
-  elements.chapterProgressUndo.disabled = solved === 0;
-  elements.quickAddRow.querySelectorAll(".quick-add-btn").forEach((button) => {
-    button.disabled = remaining === 0;
-  });
-
-  if (remaining === 0) {
-    elements.drawerNote.textContent = "Chapter complete. Use Undo Fire if you want to correct an extra add.";
-  } else if (remaining < MIN_IGNITE_ADD) {
-    elements.drawerNote.textContent = `Only final top-up of ${remaining} is allowed to finish this chapter.`;
-  }
+  updateDrawerActionState(chapter, remaining);
 
   const cols = Math.ceil(Math.sqrt(chapter.target));
   const rows = Math.ceil(chapter.target / cols);
@@ -855,6 +886,9 @@ function undoRemoveChapter() {
 
 function openChapterDrawer(chapterId) {
   state.openChapterId = chapterId;
+  if (elements.addToBothCheckbox) {
+    elements.addToBothCheckbox.checked = false;
+  }
   appData.users[state.activeUser].lastOpened[state.currentSubject] = chapterId;
   saveData();
   renderDashboard();
@@ -880,24 +914,66 @@ function adjustChapterProgress(value, direction) {
   const amount = Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
   if (amount <= 0) return;
 
-  const currentSolved = getSolvedCount(state.activeUser, state.currentSubject, chapter.id);
-  const remaining = Math.max(chapter.target - currentSolved, 0);
   const isAddAction = direction !== "subtract";
+  const targetUsers = getProgressTargetUsers();
+
+  const perUser = targetUsers.map((userKey) => {
+    const currentSolved = getSolvedCount(userKey, state.currentSubject, chapter.id);
+    const remaining = Math.max(chapter.target - currentSolved, 0);
+    return {
+      userKey,
+      name: appData.users[userKey].name,
+      currentSolved,
+      remaining,
+    };
+  });
 
   if (isAddAction) {
-    const isFinalTopUp = remaining < MIN_IGNITE_ADD && amount === remaining;
-    if (amount < MIN_IGNITE_ADD && !isFinalTopUp) {
-      elements.drawerNote.textContent = `Minimum add is ${MIN_IGNITE_ADD}. Only final top-up can be smaller.`;
-      return;
+    if (amount < MIN_IGNITE_ADD) {
+      const hasInvalidUser = perUser.some((item) => {
+        const isFinalTopUp = item.remaining < MIN_IGNITE_ADD && amount === item.remaining;
+        return !isFinalTopUp;
+      });
+
+      if (hasInvalidUser) {
+        if (perUser.length > 1) {
+          elements.drawerNote.textContent = `Minimum add is ${MIN_IGNITE_ADD} for both users. Smaller values are allowed only as exact final top-up for each user.`;
+        } else {
+          elements.drawerNote.textContent = `Minimum add is ${MIN_IGNITE_ADD}. Only final top-up can be smaller.`;
+        }
+
+        return;
+      }
     }
   }
 
-  const delta = direction === "subtract" ? -amount : amount;
-  const safeSolved = Math.max(0, Math.min(currentSolved + delta, chapter.target));
-  const change = safeSolved - currentSolved;
-  if (change === 0) return;
+  const updates = perUser.map((item) => {
+    const delta = direction === "subtract" ? -amount : amount;
+    const safeSolved = Math.max(0, Math.min(item.currentSolved + delta, chapter.target));
+    const change = safeSolved - item.currentSolved;
+    return {
+      ...item,
+      safeSolved,
+      change,
+      cappedAtTarget: direction !== "subtract" && safeSolved < item.currentSolved + amount,
+      hitZero: direction === "subtract" && safeSolved === 0 && item.currentSolved > 0,
+    };
+  });
 
-  setSolvedCount(state.activeUser, state.currentSubject, chapter.id, safeSolved);
+  const hasAnyChange = updates.some((item) => item.change !== 0);
+  if (!hasAnyChange) {
+    if (isAddAction) {
+      elements.drawerNote.textContent = "No change applied. Selected users are already at target.";
+    } else {
+      elements.drawerNote.textContent = "No change applied. Nothing left to undo.";
+    }
+    return;
+  }
+
+  updates.forEach((item) => {
+    if (item.change === 0) return;
+    setSolvedCount(item.userKey, state.currentSubject, chapter.id, item.safeSolved);
+  });
   saveData();
 
   renderOverallComparison();
@@ -906,15 +982,39 @@ function adjustChapterProgress(value, direction) {
   renderChapterDrawer();
 
   if (direction === "subtract") {
-    const actualRemoved = Math.abs(change);
-    const cappedMessage = actualRemoved < amount ? " (hit 0)." : ".";
-    elements.drawerNote.textContent = `Undid ${actualRemoved} fires${cappedMessage}`;
+    if (updates.length === 1) {
+      const actualRemoved = Math.abs(updates[0].change);
+      const cappedMessage = actualRemoved < amount ? " (hit 0)." : ".";
+      elements.drawerNote.textContent = `Undid ${actualRemoved} fires${cappedMessage}`;
+      return;
+    }
+
+    const summary = updates
+      .map((item) => {
+        const removed = Math.max(0, Math.abs(item.change));
+        const suffix = item.hitZero ? " (hit 0)" : "";
+        return `${item.name}: -${removed}${suffix}`;
+      })
+      .join(" | ");
+    elements.drawerNote.textContent = `Undo applied to both users. ${summary}`;
     return;
   }
 
-  const actualAdded = change;
-  const cappedMessage = actualAdded < amount ? " (capped at target)." : ".";
-  elements.drawerNote.textContent = `Added +${actualAdded} questions${cappedMessage}`;
+  if (updates.length === 1) {
+    const actualAdded = Math.max(0, updates[0].change);
+    const cappedMessage = actualAdded < amount ? " (capped at target)." : ".";
+    elements.drawerNote.textContent = `Added +${actualAdded} questions${cappedMessage}`;
+    return;
+  }
+
+  const summary = updates
+    .map((item) => {
+      const added = Math.max(0, item.change);
+      const suffix = item.cappedAtTarget ? " (capped)" : "";
+      return `${item.name}: +${added}${suffix}`;
+    })
+    .join(" | ");
+  elements.drawerNote.textContent = `Added progress to both users. ${summary}`;
 }
 
 function removeChapterForBothUsers(chapterId) {
@@ -1086,6 +1186,11 @@ function attachEvents() {
 
   elements.chapterProgressUndo.addEventListener("click", () => {
     adjustChapterProgress(elements.chapterSolvedInput.value, "subtract");
+  });
+
+  elements.addToBothCheckbox?.addEventListener("change", () => {
+    if (!state.openChapterId) return;
+    renderChapterDrawer();
   });
 
   elements.undoAction.addEventListener("click", undoRemoveChapter);
