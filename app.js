@@ -1249,4 +1249,12 @@ async function init() {
   attachEvents();
 }
 
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch((error) => {
+      console.warn("[Pro Grace] Service worker registration failed.", error);
+    });
+  });
+}
+
 void init();
