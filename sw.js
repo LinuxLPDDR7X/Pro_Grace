@@ -1,4 +1,4 @@
-const CACHE_NAME = "pro-grace-pwa-v1";
+const CACHE_NAME = "pro-grace-pwa-v2";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -12,6 +12,12 @@ const APP_SHELL = [
   "/assets/icons/icon-512.png",
   "/assets/icons/icon-maskable-512.png",
 ];
+const NETWORK_FIRST_PATHS = new Set([
+  "/app.js",
+  "/styles.css",
+  "/config.js",
+  "/manifest.webmanifest",
+]);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -47,6 +53,21 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => caches.match("/index.html")),
+    );
+    return;
+  }
+
+  if (NETWORK_FIRST_PATHS.has(url.pathname)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response && response.status === 200 && response.type === "basic") {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request)),
     );
     return;
   }

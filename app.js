@@ -1,5 +1,7 @@
 const STORAGE_KEY = "pro-grace-v1";
 const API_DATA_ENDPOINT = "/api/data";
+const REMOTE_LOAD_TIMEOUT_MS = 2000;
+const REMOTE_SAVE_TIMEOUT_MS = 2500;
 const MIN_IGNITE_ADD = 15;
 const ALLOWED_TARGETS = [100, 250, 400, 500];
 const DEFAULT_RUNTIME_CONFIG = Object.freeze({
@@ -183,14 +185,46 @@ function getSupabaseClient() {
   return supabaseClient;
 }
 
-async function loadDataFromServer() {
-  const response = await fetch(API_DATA_ENDPOINT, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Failed to load data file: ${response.status}`);
-  }
+function withTimeout(promise, timeoutMs, label) {
+  let timeoutId = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+  });
 
-  const parsed = await response.json();
-  return normalizeData(parsed);
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
+
+function shouldTryServerFallback() {
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1";
+}
+
+async function loadDataFromServer() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REMOTE_LOAD_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(API_DATA_ENDPOINT, { cache: "no-store", signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Failed to load data file: ${response.status}`);
+    }
+
+    const parsed = await response.json();
+    return normalizeData(parsed);
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Server load timed out after ${REMOTE_LOAD_TIMEOUT_MS}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function loadDataFromSupabase() {
@@ -199,11 +233,12 @@ async function loadDataFromSupabase() {
     throw new Error("Supabase is not configured.");
   }
 
-  const { data, error } = await client
+  const queryPromise = client
     .from(SUPABASE_TABLE)
     .select("payload")
     .eq("id", SUPABASE_ROW_ID)
     .maybeSingle();
+  const { data, error } = await withTimeout(queryPromise, REMOTE_LOAD_TIMEOUT_MS, "Supabase load");
 
   if (error) {
     throw new Error(`Failed to load Supabase data: ${error.message}`);
@@ -293,6 +328,7 @@ let persistenceTarget = PERSISTENCE_TARGET.none;
 let saveRequestInFlight = null;
 let saveQueuedData = null;
 let supabaseClient = null;
+let hasLocalMutationsSinceBoot = false;
 
 function saveLocalBackup(data) {
   try {
@@ -306,13 +342,14 @@ async function persistToSupabase(data) {
   const client = getSupabaseClient();
   if (!client) return false;
 
-  const { error } = await client.from(SUPABASE_TABLE).upsert(
+  const upsertPromise = client.from(SUPABASE_TABLE).upsert(
     {
       id: SUPABASE_ROW_ID,
       payload: normalizeData(data),
     },
     { onConflict: "id" },
   );
+  const { error } = await withTimeout(upsertPromise, REMOTE_SAVE_TIMEOUT_MS, "Supabase save");
 
   if (error) {
     throw new Error(`Failed to save Supabase data: ${error.message}`);
@@ -322,19 +359,32 @@ async function persistToSupabase(data) {
 }
 
 async function persistToServer(data) {
-  const response = await fetch(API_DATA_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REMOTE_SAVE_TIMEOUT_MS);
 
-  if (!response.ok) {
-    throw new Error(`Failed to save data file: ${response.status}`);
+  try {
+    const response = await fetch(API_DATA_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to save data file: ${response.status}`);
+    }
+
+    return true;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Server save timed out after ${REMOTE_SAVE_TIMEOUT_MS}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-
-  return true;
 }
 
 async function persistToRemote(data) {
@@ -372,6 +422,7 @@ function queueRemoteSave() {
 }
 
 function saveData() {
+  hasLocalMutationsSinceBoot = true;
   appData = normalizeData(appData);
   saveLocalBackup(appData);
   queueRemoteSave();
@@ -1221,32 +1272,60 @@ function attachEvents() {
 }
 
 async function init() {
-  const localBackup = loadDataFromLocalBackup();
-
-  try {
-    appData = await loadDataFromSupabase();
-    persistenceTarget = PERSISTENCE_TARGET.supabase;
-  } catch (supabaseError) {
-    try {
-      appData = await loadDataFromServer();
-      persistenceTarget = PERSISTENCE_TARGET.server;
-    } catch (serverError) {
-      appData = localBackup;
-      persistenceTarget = PERSISTENCE_TARGET.none;
+  const renderAll = () => {
+    syncUserSwitchUI();
+    renderOverallComparison();
+    renderDashboard();
+    renderSubjectPage();
+    if (elements.chapterDrawer.classList.contains("is-open")) {
+      renderChapterDrawer();
     }
-  }
+  };
 
-  appData = normalizeData(appData);
-  saveData();
-  console.info(`[Pro Grace] Persistence mode: ${persistenceTarget}`);
-  if (persistenceTarget === PERSISTENCE_TARGET.none) {
-    console.warn("[Pro Grace] Remote persistence is not active. Data is saved in this browser only.");
-  }
+  appData = normalizeData(loadDataFromLocalBackup());
+  persistenceTarget = PERSISTENCE_TARGET.none;
+
   renderMilestoneMarkers();
-  syncUserSwitchUI();
-  renderOverallComparison();
-  renderDashboard();
+  renderAll();
   attachEvents();
+
+  const hydrateRemoteData = async () => {
+    let remoteData = null;
+    let remoteMode = PERSISTENCE_TARGET.none;
+
+    try {
+      remoteData = await loadDataFromSupabase();
+      remoteMode = PERSISTENCE_TARGET.supabase;
+    } catch (supabaseError) {
+      if (shouldTryServerFallback()) {
+        try {
+          remoteData = await loadDataFromServer();
+          remoteMode = PERSISTENCE_TARGET.server;
+        } catch (serverError) {
+          remoteMode = PERSISTENCE_TARGET.none;
+        }
+      }
+    }
+
+    persistenceTarget = remoteMode;
+
+    if (remoteData && !hasLocalMutationsSinceBoot) {
+      appData = normalizeData(remoteData);
+      saveLocalBackup(appData);
+      renderAll();
+    }
+
+    if (remoteMode !== PERSISTENCE_TARGET.none && hasLocalMutationsSinceBoot) {
+      queueRemoteSave();
+    }
+
+    console.info(`[Pro Grace] Persistence mode: ${persistenceTarget}`);
+    if (persistenceTarget === PERSISTENCE_TARGET.none) {
+      console.warn("[Pro Grace] Remote persistence is not active. Data is saved in this browser only.");
+    }
+  };
+
+  void hydrateRemoteData();
 }
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
