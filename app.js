@@ -6,23 +6,42 @@ const REMOTE_HYDRATE_RETRY_DELAYS_MS = [0, 2500, 6000, 12000];
 const MIN_IGNITE_ADD = 15;
 const ALLOWED_TARGETS = [100, 250, 400, 500];
 const DEFAULT_RUNTIME_CONFIG = Object.freeze({
-  supabaseUrl: "",
-  supabaseAnonKey: "",
-  supabaseTable: "prograce_state",
-  supabaseRowId: "primary",
+  firebaseApiKey: "",
+  firebaseAuthDomain: "",
+  firebaseProjectId: "",
+  firebaseStorageBucket: "",
+  firebaseMessagingSenderId: "",
+  firebaseAppId: "",
+  firestoreCollection: "prograce_state",
+  firestoreDocId: "primary",
 });
 const runtimeConfig = {
   ...DEFAULT_RUNTIME_CONFIG,
   ...(typeof window.PRO_GRACE_CONFIG === "object" && window.PRO_GRACE_CONFIG ? window.PRO_GRACE_CONFIG : {}),
 };
-const SUPABASE_URL = typeof runtimeConfig.supabaseUrl === "string" ? runtimeConfig.supabaseUrl.trim() : "";
-const SUPABASE_ANON_KEY = typeof runtimeConfig.supabaseAnonKey === "string" ? runtimeConfig.supabaseAnonKey.trim() : "";
-const SUPABASE_TABLE = typeof runtimeConfig.supabaseTable === "string" ? runtimeConfig.supabaseTable.trim() || "prograce_state" : "prograce_state";
-const SUPABASE_ROW_ID = typeof runtimeConfig.supabaseRowId === "string" ? runtimeConfig.supabaseRowId.trim() || "primary" : "primary";
+const FIREBASE_CONFIG = {
+  apiKey: typeof runtimeConfig.firebaseApiKey === "string" ? runtimeConfig.firebaseApiKey.trim() : "",
+  authDomain: typeof runtimeConfig.firebaseAuthDomain === "string" ? runtimeConfig.firebaseAuthDomain.trim() : "",
+  projectId: typeof runtimeConfig.firebaseProjectId === "string" ? runtimeConfig.firebaseProjectId.trim() : "",
+  storageBucket: typeof runtimeConfig.firebaseStorageBucket === "string" ? runtimeConfig.firebaseStorageBucket.trim() : "",
+  messagingSenderId:
+    typeof runtimeConfig.firebaseMessagingSenderId === "string"
+      ? runtimeConfig.firebaseMessagingSenderId.trim()
+      : "",
+  appId: typeof runtimeConfig.firebaseAppId === "string" ? runtimeConfig.firebaseAppId.trim() : "",
+};
+const FIRESTORE_COLLECTION =
+  typeof runtimeConfig.firestoreCollection === "string"
+    ? runtimeConfig.firestoreCollection.trim() || "prograce_state"
+    : "prograce_state";
+const FIRESTORE_DOC_ID =
+  typeof runtimeConfig.firestoreDocId === "string"
+    ? runtimeConfig.firestoreDocId.trim() || "primary"
+    : "primary";
 const PERSISTENCE_TARGET = {
   none: "none",
   server: "server",
-  supabase: "supabase",
+  firestore: "firestore",
 };
 const SUBJECTS = {
   mathematics: "Mathematics",
@@ -163,27 +182,35 @@ function normalizeData(rawData) {
   return normalized;
 }
 
-function isSupabaseConfigured() {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
-  if (SUPABASE_URL.includes("YOUR-PROJECT") || SUPABASE_ANON_KEY.includes("YOUR_SUPABASE")) return false;
+function isFirestoreConfigured() {
+  if (!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.projectId || !FIREBASE_CONFIG.appId) return false;
+  if (FIREBASE_CONFIG.projectId.includes("YOUR_")) return false;
+  if (FIREBASE_CONFIG.apiKey.includes("YOUR_")) return false;
   return true;
 }
 
-function getSupabaseClient() {
-  if (!isSupabaseConfigured()) return null;
-  if (!window.supabase || typeof window.supabase.createClient !== "function") return null;
+function getFirestoreDb() {
+  if (!isFirestoreConfigured()) return null;
+  if (!window.firebase || typeof window.firebase.initializeApp !== "function") return null;
+  if (typeof window.firebase.firestore !== "function") return null;
 
-  if (!supabaseClient) {
-    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
-      },
-    });
+  if (!firebaseAppInstance) {
+    firebaseAppInstance =
+      Array.isArray(window.firebase.apps) && window.firebase.apps.length
+        ? window.firebase.app()
+        : window.firebase.initializeApp(FIREBASE_CONFIG);
   }
 
-  return supabaseClient;
+  if (!firestoreDb) {
+    firestoreDb = firebaseAppInstance.firestore();
+    if (typeof firestoreDb.enablePersistence === "function") {
+      firestoreDb.enablePersistence({ synchronizeTabs: true }).catch(() => {
+        // Ignore persistence lock errors (multiple tabs/private mode).
+      });
+    }
+  }
+
+  return firestoreDb;
 }
 
 function withTimeout(promise, timeoutMs, label) {
@@ -228,33 +255,29 @@ async function loadDataFromServer() {
   }
 }
 
-async function loadDataFromSupabase() {
-  const client = getSupabaseClient();
-  if (!client) {
-    throw new Error("Supabase is not configured.");
+async function loadDataFromFirestore() {
+  const db = getFirestoreDb();
+  if (!db) {
+    throw new Error("Firestore is not configured.");
   }
 
-  const queryPromise = client
-    .from(SUPABASE_TABLE)
-    .select("payload")
-    .eq("id", SUPABASE_ROW_ID)
-    .maybeSingle();
-  const { data, error } = await withTimeout(queryPromise, REMOTE_LOAD_TIMEOUT_MS, "Supabase load");
+  const queryPromise = db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC_ID).get();
+  const snapshot = await withTimeout(queryPromise, REMOTE_LOAD_TIMEOUT_MS, "Firestore load");
 
-  if (error) {
-    throw new Error(`Failed to load Supabase data: ${error.message}`);
-  }
-
-  if (data && typeof data.payload === "object" && data.payload) {
-    return normalizeData(data.payload);
+  if (snapshot.exists) {
+    const payload = snapshot.data()?.payload;
+    if (payload && typeof payload === "object") {
+      return normalizeData(payload);
+    }
   }
 
   const seeded = loadDataFromLocalBackup();
   try {
-    await persistToSupabase(seeded);
+    await persistToFirestore(seeded);
   } catch (persistError) {
-    // Keep local seeded state if first upsert fails.
+    // Keep local seeded state if first write fails.
   }
+
   return normalizeData(seeded);
 }
 
@@ -328,7 +351,8 @@ const undoState = {
 let persistenceTarget = PERSISTENCE_TARGET.none;
 let saveRequestInFlight = null;
 let saveQueuedData = null;
-let supabaseClient = null;
+let firebaseAppInstance = null;
+let firestoreDb = null;
 let hasLocalMutationsSinceBoot = false;
 
 function saveLocalBackup(data) {
@@ -339,23 +363,18 @@ function saveLocalBackup(data) {
   }
 }
 
-async function persistToSupabase(data) {
-  const client = getSupabaseClient();
-  if (!client) return false;
+async function persistToFirestore(data) {
+  const db = getFirestoreDb();
+  if (!db) return false;
 
-  const upsertPromise = client.from(SUPABASE_TABLE).upsert(
+  const savePromise = db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC_ID).set(
     {
-      id: SUPABASE_ROW_ID,
       payload: normalizeData(data),
+      updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
     },
-    { onConflict: "id" },
+    { merge: true },
   );
-  const { error } = await withTimeout(upsertPromise, REMOTE_SAVE_TIMEOUT_MS, "Supabase save");
-
-  if (error) {
-    throw new Error(`Failed to save Supabase data: ${error.message}`);
-  }
-
+  await withTimeout(savePromise, REMOTE_SAVE_TIMEOUT_MS, "Firestore save");
   return true;
 }
 
@@ -389,8 +408,8 @@ async function persistToServer(data) {
 }
 
 async function persistToRemote(data) {
-  if (persistenceTarget === PERSISTENCE_TARGET.supabase) {
-    return persistToSupabase(data);
+  if (persistenceTarget === PERSISTENCE_TARGET.firestore) {
+    return persistToFirestore(data);
   }
 
   if (persistenceTarget === PERSISTENCE_TARGET.server) {
@@ -1297,16 +1316,41 @@ async function init() {
     let remoteMode = PERSISTENCE_TARGET.none;
     let lastRemoteError = null;
 
+    if (!isFirestoreConfigured()) {
+      if (shouldTryServerFallback()) {
+        try {
+          remoteData = await loadDataFromServer();
+          remoteMode = PERSISTENCE_TARGET.server;
+        } catch (serverError) {
+          lastRemoteError = serverError;
+          remoteMode = PERSISTENCE_TARGET.none;
+        }
+      }
+
+      persistenceTarget = remoteMode;
+      if (remoteData && !hasLocalMutationsSinceBoot) {
+        appData = normalizeData(remoteData);
+        saveLocalBackup(appData);
+        renderAll();
+      }
+
+      console.info(`[Pro Grace] Persistence mode: ${persistenceTarget}`);
+      if (persistenceTarget === PERSISTENCE_TARGET.none) {
+        console.warn("[Pro Grace] Remote persistence is not active. Data is saved in this browser only.");
+      }
+      return;
+    }
+
     for (const delay of REMOTE_HYDRATE_RETRY_DELAYS_MS) {
       if (delay > 0) {
         await wait(delay);
       }
 
       try {
-        remoteData = await loadDataFromSupabase();
-        remoteMode = PERSISTENCE_TARGET.supabase;
-      } catch (supabaseError) {
-        lastRemoteError = supabaseError;
+        remoteData = await loadDataFromFirestore();
+        remoteMode = PERSISTENCE_TARGET.firestore;
+      } catch (firestoreError) {
+        lastRemoteError = firestoreError;
         if (shouldTryServerFallback()) {
           try {
             remoteData = await loadDataFromServer();

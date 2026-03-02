@@ -1,9 +1,13 @@
 window.PRO_GRACE_CONFIG = {
-  supabaseUrl: "https://hqcpagyelaggfcmeokrc.supabase.co",
-  // Use the public anon key from Supabase Project Settings -> API.
-  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhxY3BhZ3llbGFnZ2ZjbWVva3JjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwMDMwMTgsImV4cCI6MjA4NzU3OTAxOH0.LzZYG1AdAobrgR8ruB6Myz-A-Wyxkgulq4PvenPUU4U",
-  // Table with one row storing the full app payload as JSON.
-  supabaseTable: "prograce_state",
-  // Single row id in the table.
-  supabaseRowId: "primary",
+  // Firebase Web App config (Project settings -> General -> Your apps -> SDK setup and configuration).
+  firebaseApiKey: "AIzaSyDup6IifyLuoObEZcR_rlNxWX27kh8NcOk",
+  firebaseAuthDomain: "prograce-8964b.firebaseapp.com",
+  firebaseProjectId: "prograce-8964b",
+  firebaseStorageBucket: "prograce-8964b.firebasestorage.app",
+  firebaseMessagingSenderId: "7358446294",
+  firebaseAppId: "1:7358446294:web:e869235c0075218ccf6777",
+
+  // Firestore location for shared state payload.
+  firestoreCollection: "prograce_state",
+  firestoreDocId: "primary",
 };
