@@ -1,7 +1,8 @@
 const STORAGE_KEY = "pro-grace-v1";
 const API_DATA_ENDPOINT = "/api/data";
-const REMOTE_LOAD_TIMEOUT_MS = 2000;
+const REMOTE_LOAD_TIMEOUT_MS = 6000;
 const REMOTE_SAVE_TIMEOUT_MS = 2500;
+const REMOTE_HYDRATE_RETRY_DELAYS_MS = [0, 2500, 6000, 12000];
 const MIN_IGNITE_ADD = 15;
 const ALLOWED_TARGETS = [100, 250, 400, 500];
 const DEFAULT_RUNTIME_CONFIG = Object.freeze({
@@ -1289,21 +1290,38 @@ async function init() {
   renderAll();
   attachEvents();
 
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   const hydrateRemoteData = async () => {
     let remoteData = null;
     let remoteMode = PERSISTENCE_TARGET.none;
+    let lastRemoteError = null;
 
-    try {
-      remoteData = await loadDataFromSupabase();
-      remoteMode = PERSISTENCE_TARGET.supabase;
-    } catch (supabaseError) {
-      if (shouldTryServerFallback()) {
-        try {
-          remoteData = await loadDataFromServer();
-          remoteMode = PERSISTENCE_TARGET.server;
-        } catch (serverError) {
+    for (const delay of REMOTE_HYDRATE_RETRY_DELAYS_MS) {
+      if (delay > 0) {
+        await wait(delay);
+      }
+
+      try {
+        remoteData = await loadDataFromSupabase();
+        remoteMode = PERSISTENCE_TARGET.supabase;
+      } catch (supabaseError) {
+        lastRemoteError = supabaseError;
+        if (shouldTryServerFallback()) {
+          try {
+            remoteData = await loadDataFromServer();
+            remoteMode = PERSISTENCE_TARGET.server;
+          } catch (serverError) {
+            lastRemoteError = serverError;
+            remoteMode = PERSISTENCE_TARGET.none;
+          }
+        } else {
           remoteMode = PERSISTENCE_TARGET.none;
         }
+      }
+
+      if (remoteMode !== PERSISTENCE_TARGET.none) {
+        break;
       }
     }
 
@@ -1322,6 +1340,9 @@ async function init() {
     console.info(`[Pro Grace] Persistence mode: ${persistenceTarget}`);
     if (persistenceTarget === PERSISTENCE_TARGET.none) {
       console.warn("[Pro Grace] Remote persistence is not active. Data is saved in this browser only.");
+      if (lastRemoteError) {
+        console.warn("[Pro Grace] Last remote error:", lastRemoteError);
+      }
     }
   };
 
